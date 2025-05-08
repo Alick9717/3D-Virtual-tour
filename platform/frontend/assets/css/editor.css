@@ -1,0 +1,42 @@
+/* Стили для Pannellum */
+#panorama-viewer, #editor-viewer {
+    width: 100%;
+    height: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.panorama-player {
+    position: relative;
+    height: 600px;
+    margin-bottom: 20px;
+}
+
+.editor-player {
+    position: relative;
+    height: 500px;
+}
+
+/* Hotspot стили */
+.pnlm-hotspot {
+    width: 30px;
+    height: 30px;
+    background-color: rgba(0, 0, 0, 0.5);
+    border-radius: 50%;
+    border: 2px solid white;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.pnlm-hotspot:hover {
+    background-color: rgba(76, 175, 80, 0.8);
+}
+
+.pnlm-tooltip {
+    padding: 5px 10px;
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    border-radius: 4px;
+    font-size: 14px;
+}

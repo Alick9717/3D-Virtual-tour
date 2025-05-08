@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Личный кабинет | AllHomes Agency</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="../assets/css/tours.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-container">
+            <div class="logo-container">
+                <div class="logo-text">LOGO</div>
+            </div>
+            
+            <div class="nav-menu">
+                <div class="nav-item active">Мои туры</div>
+                
+                <div class="user-profile">
+                    <div class="user-name">Иван</div>
+                    <i class="fas fa-chevron-down"></i>
+                    
+                    <div class="user-dropdown">
+                        <div class="dropdown-item">
+                            <i class="fas fa-cog"></i>
+                            <span>Управление аккаунтом</span>
+                        </div>
+                        <div class="dropdown-item" id="logout-btn">
+                            <i class="fas fa-sign-out-alt"></i>
+                            <span>Выход</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+    
+    <!-- Main Content -->
+    <div class="container">
+        <!-- Filters and Controls -->
+        <div class="filters-row">
+            <div class="filters">
+                <div class="sort-dropdown">
+                    <select id="sort-select">
+                        <option value="date-desc">По дате создания (новые сверху)</option>
+                        <option value="date-asc">По дате создания (старые сверху)</option>
+                        <option value="name-asc">По названию (А-Я)</option>
+                        <option value="name-desc">По названию (Я-А)</option>
+                    </select>
+                </div>
+                
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="search-input" placeholder="Поиск...">
+                </div>
+            </div>
+            
+            <div class="controls">
+                <div class="view-toggle">
+                    <div class="toggle-btn active" id="tile-view-btn">
+                        <i class="fas fa-th"></i>
+                    </div>
+                    <div class="toggle-btn" id="list-view-btn">
+                        <i class="fas fa-list"></i>
+                    </div>
+                </div>
+                
+                <div class="create-btn" id="create-tour-btn">
+                    <i class="fas fa-plus"></i>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Прелоадер -->
+        <div class="loader" id="loader">
+            <div class="loader-spinner"></div>
+            <p>Загрузка туров...</p>
+        </div>
+        
+        <!-- Tile View (Default) -->
+        <div class="tile-view" id="tile-view"></div>
+        
+        <!-- List View (Hidden by Default) -->
+        <div class="list-view" id="list-view">
+            <table class="list-table">
+                <thead>
+                    <tr>
+                        <th>Название</th>
+                        <th>Объект</th>
+                        <th>Дата</th>
+                        <th>Статус</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="list-table-body"></tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        <div class="pagination" id="pagination"></div>
+    </div>
+    
+    <!-- Модальное окно создания тура -->
+    <div class="modal" id="create-tour-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Создать новый тур</h3>
+                <div class="modal-close">&times;</div>
+            </div>
+            <div class="modal-body">
+                <form id="create-tour-form">
+                    <div class="form-group">
+                        <label for="tour-name">Название</label>
+                        <input type="text" id="tour-name" name="name" required placeholder="Введите название тура">
+                    </div>
+                    <div class="form-group">
+                        <label for="tour-type">Тип объекта</label>
+                        <select id="tour-type" name="objectType" required>
+                            <option value="">Выберите тип объекта</option>
+                            <option value="apartment">Квартира</option>
+                            <option value="house">Дом</option>
+                            <option value="office">Офис</option>
+                            <option value="commercial">Коммерческое помещение</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="tour-description">Описание (опционально)</label>
+                        <textarea id="tour-description" name="description" rows="3" placeholder="Добавьте описание тура"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Отмена</button>
+                <button type="button" class="btn btn-primary" id="create-tour-submit">Создать</button>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module" src="../assets/js/common/api.js"></script>
+    <script type="module" src="../assets/js/common/auth.js"></script>
+    <script type="module" src="../assets/js/tours/tours.js"></script>
+</body>
+</html>
