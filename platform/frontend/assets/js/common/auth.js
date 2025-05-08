@@ -19,7 +19,7 @@ function getUser() {
     try {
         return JSON.parse(userJson);
     } catch (e) {
-        console.error('Error parsing user data:', e);
+        console.error('Ошибка парсинга данных пользователя:', e);
         return null;
     }
 }
@@ -34,7 +34,7 @@ async function refreshUserData() {
         localStorage.setItem('user', JSON.stringify(userData));
         return userData;
     } catch (error) {
-        console.error('Error refreshing user data:', error);
+        console.error('Ошибка обновления данных пользователя:', error);
         throw error;
     }
 }
@@ -48,10 +48,12 @@ function logout() {
     window.location.href = '/pages/sing-in.html';
 }
 
-// Функции для управления выпадающим меню пользователя
+/**
+ * Настройка отображения и управления меню пользователя
+ */
 function setupUserMenu() {
-    const userMenu = document.querySelector('.user-menu');
-    const dropdownMenu = document.querySelector('.user-dropdown') || document.querySelector('.dropdown-menu');
+    const userMenu = document.querySelector('.user-menu') || document.querySelector('.user-profile');
+    const dropdownMenu = document.querySelector('.user-dropdown') || document.querySelector('.dropdown-menu') || document.querySelector('#popup');
     
     if (userMenu && dropdownMenu) {
         // Флаг для контроля состояния меню
@@ -61,17 +63,30 @@ function setupUserMenu() {
             event.stopPropagation();
             isMenuOpen = !isMenuOpen;
             dropdownMenu.style.display = isMenuOpen ? 'block' : 'none';
+            // Для некоторых стилей может использоваться класс active
+            if (dropdownMenu.classList.contains('active') || !isMenuOpen) {
+                dropdownMenu.classList.remove('active');
+            } else if (isMenuOpen) {
+                dropdownMenu.classList.add('active');
+            }
         });
         
         // Обработчик для клика по элементам меню
         dropdownMenu.addEventListener('click', function(event) {
             event.stopPropagation();
-            // Проверяем, что клик был по элементу меню, а не по самому меню
-            if (event.target.closest('.dropdown-item')) {
-                // Не закрываем меню сразу, чтобы пользователь мог выбрать пункт меню
+            // Проверяем, что клик был по элементу меню
+            const menuItem = event.target.closest('.dropdown-item, .popup-item');
+            if (menuItem) {
+                // Если это кнопка выхода
+                if (menuItem.id === 'logout-btn' || menuItem.textContent.includes('Выход')) {
+                    logout();
+                }
+                
+                // Закрываем меню после клика по элементу
                 setTimeout(() => {
                     isMenuOpen = false;
                     dropdownMenu.style.display = 'none';
+                    dropdownMenu.classList.remove('active');
                 }, 100);
             }
         });
@@ -80,11 +95,14 @@ function setupUserMenu() {
         document.addEventListener('click', function() {
             isMenuOpen = false;
             dropdownMenu.style.display = 'none';
+            dropdownMenu.classList.remove('active');
         });
     }
 }
 
-// Проверка авторизации при загрузке страницы
+/**
+ * Проверка авторизации при загрузке страницы
+ */
 document.addEventListener('DOMContentLoaded', function() {
     // Не проверяем авторизацию на странице входа/регистрации
     if (window.location.pathname.includes('sing-in.html')) {
@@ -107,6 +125,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Настраиваем выпадающее меню пользователя
     setupUserMenu();
+    
+    // Обновляем данные пользователя с сервера (в фоне)
+    refreshUserData().catch(console.error);
 });
 
 /**
@@ -117,13 +138,13 @@ function displayUserData() {
     if (!user) return;
     
     // Находим элементы для отображения имени пользователя
-    const userNameElements = document.querySelectorAll('.user-name');
+    const userNameElements = document.querySelectorAll('.user-name, .username');
     userNameElements.forEach(element => {
         element.textContent = user.name;
     });
     
     // Находим элементы для отображения аватара (первой буквы имени)
-    const userAvatarElements = document.querySelectorAll('.user-avatar');
+    const userAvatarElements = document.querySelectorAll('.user-avatar, .avatar');
     userAvatarElements.forEach(element => {
         element.textContent = user.name.charAt(0).toUpperCase();
     });

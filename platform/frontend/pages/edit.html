@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Редактирование тура</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/material-design-icons/3.0.1/iconfont/material-icons.min.css" rel="stylesheet">
+    <title>Редактирование тура | AllHomes Agency</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <!-- Добавляем стили Pannellum -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.css">
     <link rel="stylesheet" href="../assets/css/editor.css">
@@ -14,15 +14,21 @@
     <header>
         <div class="container">
             <div class="header-content">
-                <div class="logo">LOGO</div>
+                <a href="main.html" class="logo">LOGO</a>
                 <div class="nav-menu">
-                    <div class="nav-item">Мои туры</div>
+                    <a href="main.html" class="nav-item">Мои туры</a>
                     <div class="user-menu">
                         <div class="user-avatar">И</div>
                         <div class="nav-item user-name">Иван</div>
                         <div class="dropdown-menu">
-                            <div class="dropdown-item">Управление аккаунтом</div>
-                            <div class="dropdown-item" id="logout-btn">Выход</div>
+                            <div class="dropdown-item">
+                                <i class="material-icons">settings</i>
+                                Управление аккаунтом
+                            </div>
+                            <div class="dropdown-item" id="logout-btn">
+                                <i class="material-icons">logout</i>
+                                Выход
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -34,7 +40,7 @@
     <div class="container">
         <!-- Tour Header -->
         <div class="tour-header">
-            <h1 id="tour-title">Квартира на Ленинском</h1>
+            <h1 id="tour-title">Загрузка тура...</h1>
             <a href="main.html" class="back-button">
                 <i class="material-icons">arrow_back</i>
                 К списку туров
@@ -51,12 +57,12 @@
         <!-- Tab Content -->
         <div id="preview" class="tab-content active">
             <div class="panorama-player">
-                <!-- Заменяем плейсхолдер на Pannellum viewer -->
+                <!-- Pannellum viewer для превью -->
                 <div id="panorama-viewer"></div>
                 <div class="player-logo">LOGO</div>
                 
                 <div class="panorama-thumbnail-bar" id="preview-thumbnails">
-                    <!-- Thumbnails will be dynamically added here -->
+                    <!-- Панорамы будут добавлены динамически -->
                 </div>
             </div>
             
@@ -69,40 +75,46 @@
         <div id="editor" class="tab-content">
             <div class="editor-layout">
                 <div class="editor-player">
-                    <!-- Заменяем плейсхолдер на Pannellum editor viewer -->
+                    <!-- Pannellum editor viewer -->
                     <div id="editor-viewer"></div>
                     
-                    <div class="panorama-thumbnail-bar" id="editor-thumbnails" style="position: absolute;">
-                        <!-- Thumbnails will be dynamically added here -->
+                    <div class="panorama-thumbnail-bar" id="editor-thumbnails">
+                        <!-- Панорамы будут добавлены динамически -->
                     </div>
                 </div>
                 
                 <div class="editor-sidebar">
                     <div class="editor-section">
-                        <h3>Hotspot'ы</h3>
-                        <button class="add-hotspot-btn">+ Добавить hotspot</button>
+                        <h3>Хотспоты</h3>
+                        <button class="add-hotspot-btn">
+                            <i class="material-icons">add_circle_outline</i>
+                            Добавить хотспот
+                        </button>
                         <div class="hotspot-list" id="hotspot-list">
-                            <!-- Hotspots will be dynamically added here -->
+                            <!-- Хотспоты будут добавлены динамически -->
                         </div>
                     </div>
                     
                     <div class="editor-section">
-                        <h3>Горизонт</h3>
+                        <h3>Настройка обзора</h3>
                         <div class="slider-control">
-                            <label>Pitch</label>
+                            <label for="pitch-slider">Pitch (вертикаль)</label>
                             <input type="range" min="-90" max="90" value="0" id="pitch-slider">
                         </div>
                         <div class="slider-control">
-                            <label>Yaw</label>
+                            <label for="yaw-slider">Yaw (горизонталь)</label>
                             <input type="range" min="-180" max="180" value="0" id="yaw-slider">
                         </div>
-                        <button class="reset-btn" id="reset-horizon">Сбросить</button>
+                        <button class="reset-btn" id="reset-horizon">
+                            <i class="material-icons">restart_alt</i>
+                            Сбросить положение
+                        </button>
                     </div>
                     
                     <div class="editor-section">
-                        <h3>Настройки</h3>
+                        <h3>Настройки тура</h3>
                         <div class="settings-option">
-                            <label>Логотип</label>
+                            <label for="logo-select">Логотип</label>
                             <select id="logo-select">
                                 <option value="none">Без логотипа</option>
                                 <option value="standard" selected>Стандартный</option>
@@ -110,17 +122,26 @@
                             </select>
                         </div>
                         <div class="settings-option">
-                            <label>Стартовая панорама</label>
+                            <label for="start-panorama-select">Стартовая панорама</label>
                             <select id="start-panorama-select">
-                                <!-- Options will be dynamically added here -->
+                                <!-- Панорамы будут добавлены динамически -->
                             </select>
                         </div>
                     </div>
                     
                     <div class="action-buttons">
-                        <button class="action-btn save-btn" id="save-btn">Сохранить</button>
-                        <button class="action-btn preview-btn" id="view-preview-btn">Превью</button>
-                        <button class="action-btn share-btn" id="editor-share-btn">Поделиться</button>
+                        <button class="action-btn save-btn" id="save-btn">
+                            <i class="material-icons">save</i>
+                            Сохранить
+                        </button>
+                        <button class="action-btn preview-btn" id="view-preview-btn">
+                            <i class="material-icons">visibility</i>
+                            Превью
+                        </button>
+                        <button class="action-btn share-btn" id="editor-share-btn">
+                            <i class="material-icons">share</i>
+                            Поделиться
+                        </button>
                     </div>
                 </div>
             </div>
@@ -136,7 +157,7 @@
             </div>
             
             <div class="panoramas-grid" id="panoramas-grid">
-                <!-- Panorama cards will be dynamically added here -->
+                <!-- Карточки панорам будут добавлены динамически -->
             </div>
         </div>
     </div>
@@ -148,15 +169,21 @@
                 <h3 class="modal-title">Загрузка панорам</h3>
                 <div class="modal-close" id="upload-modal-close">&times;</div>
             </div>
-            
-            <div class="file-upload-container" id="drop-area">
-                <p>Перетащите файлы сюда или нажмите кнопку ниже</p>
-                <button class="upload-area-btn" id="file-select-btn">Выбрать файлы</button>
-                <input type="file" id="file-input" style="display:none;" multiple accept="image/*">
-            </div>
-            
-            <div class="file-list" id="file-list">
-                <!-- Selected files will be listed here -->
+            <div class="modal-body">
+                <p class="modal-description">
+                    Выберите панорамные изображения для загрузки. Поддерживаются форматы JPG и PNG.
+                    Рекомендуемое разрешение: минимум 2000×1000 пикселей для лучшего качества отображения.
+                </p>
+                
+                <div class="file-upload-container" id="drop-area">
+                    <p>Перетащите файлы сюда или нажмите кнопку ниже</p>
+                    <button class="upload-area-btn" id="file-select-btn">Выбрать файлы</button>
+                    <input type="file" id="file-input" style="display:none;" multiple accept="image/*">
+                </div>
+                
+                <div class="file-list" id="file-list">
+                    <!-- Выбранные файлы будут перечислены здесь -->
+                </div>
             </div>
             
             <div class="modal-actions">

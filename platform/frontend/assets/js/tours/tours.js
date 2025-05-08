@@ -201,11 +201,16 @@ function renderTours() {
     
     // Отображаем каждый тур
     state.tours.forEach(tour => {
+        // Определяем изображение для предпросмотра
+        const previewImage = tour.panoramas && tour.panoramas.length > 0 ? 
+            `/api/uploads/${tour.panoramas[0].filename}` : 
+            'https://via.placeholder.com/300x160';
+        
         // Создаем элемент для плиточного вида
         const card = document.createElement('div');
         card.className = 'tour-card';
         card.innerHTML = `
-            <div class="card-image" style="background-image: url('https://via.placeholder.com/300x160');"></div>
+            <div class="card-image" style="background-image: url('${previewImage}');"></div>
             <div class="card-content">
                 <div class="card-title">${tour.name}</div>
                 <div class="card-status ${statusClassMap[tour.status]}">${statusMap[tour.status]}</div>
@@ -268,15 +273,27 @@ function renderPagination() {
     const pagination = document.getElementById('pagination');
     pagination.innerHTML = '';
     
+    if (state.totalPages <= 1) {
+        return; // Не показываем пагинацию, если всего одна страница
+    }
+    
     // Добавляем кнопку "Предыдущая"
     const prevBtn = document.createElement('div');
-    prevBtn.className = 'page-btn';
+    prevBtn.className = `page-btn ${state.currentPage <= 1 ? 'disabled' : ''}`;
     prevBtn.innerHTML = '<i class="fas fa-chevron-left"></i>';
     prevBtn.dataset.page = Math.max(1, state.currentPage - 1);
     pagination.appendChild(prevBtn);
     
     // Добавляем кнопки страниц
-    for (let i = 1; i <= state.totalPages; i++) {
+    // Показываем максимум 5 страниц
+    let startPage = Math.max(1, state.currentPage - 2);
+    let endPage = Math.min(state.totalPages, startPage + 4);
+    
+    if (endPage - startPage < 4) {
+        startPage = Math.max(1, endPage - 4);
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
         const pageBtn = document.createElement('div');
         pageBtn.className = `page-btn ${i === state.currentPage ? 'active' : ''}`;
         pageBtn.textContent = i;
@@ -286,7 +303,7 @@ function renderPagination() {
     
     // Добавляем кнопку "Следующая"
     const nextBtn = document.createElement('div');
-    nextBtn.className = 'page-btn';
+    nextBtn.className = `page-btn ${state.currentPage >= state.totalPages ? 'disabled' : ''}`;
     nextBtn.innerHTML = '<i class="fas fa-chevron-right"></i>';
     nextBtn.dataset.page = Math.min(state.totalPages, state.currentPage + 1);
     pagination.appendChild(nextBtn);
@@ -323,6 +340,9 @@ async function handleCreateTour() {
     }
     
     try {
+        // Показываем прелоадер
+        document.getElementById('loader').style.display = 'block';
+        
         // Создаем объект с данными тура
         const tourData = {
             name,
@@ -347,6 +367,9 @@ async function handleCreateTour() {
     } catch (error) {
         console.error('Ошибка при создании тура:', error);
         alert('Произошла ошибка при создании тура. Пожалуйста, попробуйте позже.');
+    } finally {
+        // Скрываем прелоадер
+        document.getElementById('loader').style.display = 'none';
     }
 }
 
@@ -356,6 +379,9 @@ async function handleCreateTour() {
  */
 async function handleDeleteTour(tourId) {
     try {
+        // Показываем прелоадер
+        document.getElementById('loader').style.display = 'block';
+        
         // Отправляем запрос на удаление тура
         await deleteTour(tourId);
         
@@ -367,6 +393,9 @@ async function handleDeleteTour(tourId) {
     } catch (error) {
         console.error('Ошибка при удалении тура:', error);
         alert('Произошла ошибка при удалении тура. Пожалуйста, попробуйте позже.');
+    } finally {
+        // Скрываем прелоадер
+        document.getElementById('loader').style.display = 'none';
     }
 }
 

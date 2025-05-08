@@ -1,11 +1,12 @@
-import { getTour, updateTour } from '../common/api.js';
+import { getTour, updateTour, getPanoramas, uploadPanorama, deletePanorama } from '../common/api.js';
 import { isAuthenticated } from '../common/auth.js';
 
 // Состояние редактора
 const state = {
     tour: null,
     currentPanoramaId: null,
-    loading: false
+    loading: false,
+    selectedFiles: [] // Для хранения выбранных файлов при загрузке
 };
 
 // Инициализация страницы
@@ -110,6 +111,7 @@ function initEventListeners() {
     });
     
     fileInput.addEventListener('change', function() {
+        state.selectedFiles = this.files;
         handleFiles(this.files);
     });
     
@@ -141,6 +143,7 @@ function initEventListeners() {
     dropArea.addEventListener('drop', function(e) {
         const dt = e.dataTransfer;
         const files = dt.files;
+        state.selectedFiles = files;
         handleFiles(files);
     });
     
@@ -178,52 +181,20 @@ async function loadTourData(tourId) {
         state.loading = true;
         document.getElementById('loader').style.display = 'flex';
         
-        // Имитация запроса к API (в будущем будет заменено на реальный запрос)
-        setTimeout(() => {
-            // Временные данные
-            const tourData = {
-                id: tourId,
-                name: 'Квартира на Ленинском',
-                objectType: 'apartment',
-                description: 'Просторная квартира в новостройке',
-                createdAt: '2025-05-02',
-                status: 'ready',
-                panoramas: [
-                    { id: '1', name: 'Гостиная', uploadedAt: '2025-05-01', status: 'active' },
-                    { id: '2', name: 'Кухня', uploadedAt: '2025-05-01', status: 'active' },
-                    { id: '3', name: 'Спальня', uploadedAt: '2025-05-01', status: 'active' },
-                    { id: '4', name: 'Ванная', uploadedAt: '2025-05-01', status: 'active' },
-                    { id: '5', name: 'Балкон', uploadedAt: '2025-05-02', status: 'inactive' }
-                ],
-                settings: {
-                    logo: 'standard',
-                    startPanorama: '1'
-                },
-                hotspots: [
-                    { id: '1', panoramaId: '1', name: 'Hotspot #1', target: '2' },
-                    { id: '2', panoramaId: '1', name: 'Hotspot #2', target: '3' }
-                ]
-            };
-            
-            // Обновляем состояние
-            state.tour = tourData;
-            state.currentPanoramaId = tourData.settings.startPanorama;
-            
-            // Отображаем данные тура
-            renderTourData();
-            
-            // Скрываем индикатор загрузки
-            state.loading = false;
-            document.getElementById('loader').style.display = 'none';
-        }, 1000);
-        
-        // В будущем этот код будет заменен на реальный запрос
-        /*
+        // Получаем тур по ID
         const tourData = await getTour(tourId);
         
         // Обновляем состояние
         state.tour = tourData;
-        state.currentPanoramaId = tourData.settings.startPanorama;
+        
+        // Если есть настройки и указана стартовая панорама
+        if (tourData.settings && tourData.settings.startPanorama) {
+            state.currentPanoramaId = tourData.settings.startPanorama;
+        } 
+        // Иначе берем первую панораму из списка
+        else if (tourData.panoramas && tourData.panoramas.length > 0) {
+            state.currentPanoramaId = tourData.panoramas[0].id;
+        }
         
         // Отображаем данные тура
         renderTourData();
@@ -231,7 +202,6 @@ async function loadTourData(tourId) {
         // Скрываем индикатор загрузки
         state.loading = false;
         document.getElementById('loader').style.display = 'none';
-        */
     } catch (error) {
         console.error('Ошибка при загрузке данных тура:', error);
         alert('Ошибка при загрузке данных тура');
@@ -252,7 +222,9 @@ function renderTourData() {
     document.getElementById('tour-title').textContent = state.tour.name;
     
     // Настройки
-    document.getElementById('logo-select').value = state.tour.settings.logo;
+    if (state.tour.settings) {
+        document.getElementById('logo-select').value = state.tour.settings.logo || 'standard';
+    }
     
     // Рендерим панорамы
     renderPanoramas();
@@ -265,6 +237,68 @@ function renderTourData() {
     
     // Рендерим выпадающий список стартовой панорамы
     renderStartPanoramaOptions();
+    
+    // Инициализация Pannellum
+    initPannellum();
+}
+
+/**
+ * Инициализация Pannellum для просмотра панорам
+ */
+function initPannellum() {
+    if (!state.tour || !state.tour.panoramas || state.tour.panoramas.length === 0) {
+        return;
+    }
+    
+    // Находим текущую панораму
+    const panorama = state.tour.panoramas.find(p => p.id === state.currentPanoramaId);
+    if (!panorama) return;
+    
+    // URL для загрузки панорамы
+    const panoramaUrl = `/api/uploads/${panorama.filename}`;
+    
+    // Инициализируем Pannellum для превью
+    pannellum.viewer('panorama-viewer', {
+        type: 'equirectangular',
+        panorama: panoramaUrl,
+        autoLoad: true,
+        title: panorama.name,
+        preview: 'https://via.placeholder.com/100x50',
+        hotSpots: getHotspotsForViewer()
+    });
+    
+    // Инициализируем Pannellum для редактора
+    pannellum.viewer('editor-viewer', {
+        type: 'equirectangular',
+        panorama: panoramaUrl,
+        autoLoad: true,
+        title: panorama.name,
+        preview: 'https://via.placeholder.com/100x50',
+        hotSpots: getHotspotsForViewer(),
+        hfov: 100,
+        mouseZoom: false
+    });
+}
+
+/**
+ * Получение хотспотов в формате для Pannellum
+ */
+function getHotspotsForViewer() {
+    if (!state.tour || !state.tour.hotspots) return [];
+    
+    // Фильтруем хотспоты для текущей панорамы
+    return state.tour.hotspots
+        .filter(h => h.panoramaId === state.currentPanoramaId)
+        .map(h => {
+            return {
+                id: h.id,
+                pitch: h.position ? h.position.y || 0 : 0,
+                yaw: h.position ? h.position.x || 0 : 0,
+                text: h.name,
+                type: 'info',
+                targetPanorama: h.targetPanoramaId
+            };
+        });
 }
 
 /**
@@ -283,13 +317,15 @@ function renderPanoramas() {
         const statusClass = panorama.status === 'active' ? 'status-active' : 'status-inactive';
         const statusText = panorama.status === 'active' ? 'В туре' : 'Неиспользуемая';
         
+        const previewUrl = `/api/uploads/${panorama.filename}`;
+        
         const card = document.createElement('div');
         card.className = 'panorama-card';
         card.innerHTML = `
-            <div class="panorama-preview" style="background-image: url('https://via.placeholder.com/300x150');"></div>
+            <div class="panorama-preview" style="background-image: url('${previewUrl}');"></div>
             <div class="panorama-info">
                 <div class="panorama-name">${panorama.name}</div>
-                <div class="panorama-details">Загружено: ${formatDate(panorama.uploadedAt)}</div>
+                <div class="panorama-details">Загружено: ${formatDate(panorama.createdAt)}</div>
                 <div class="panorama-status ${statusClass}">${statusText}</div>
                 <div class="panorama-edit">
                     <input type="text" value="${panorama.name}" data-id="${panorama.id}">
@@ -326,10 +362,41 @@ function renderPanoramas() {
         btn.addEventListener('click', function() {
             const panoramaId = this.getAttribute('data-id');
             if (confirm('Вы уверены, что хотите удалить эту панораму?')) {
-                deletePanorama(panoramaId);
+                handleDeletePanorama(panoramaId);
             }
         });
     });
+}
+
+/**
+ * Обработчик удаления панорамы
+ * @param {string} panoramaId - ID панорамы
+ */
+async function handleDeletePanorama(panoramaId) {
+    if (!state.tour || !state.tour.id) return;
+    
+    try {
+        // Показываем индикатор загрузки
+        state.loading = true;
+        document.getElementById('loader').style.display = 'flex';
+        
+        // Отправляем запрос на удаление панорамы
+        await deletePanorama(state.tour.id, panoramaId);
+        
+        // Обновляем данные тура
+        await loadTourData(state.tour.id);
+        
+        // Показываем сообщение об успешном удалении
+        alert('Панорама успешно удалена!');
+        
+    } catch (error) {
+        console.error('Ошибка при удалении панорамы:', error);
+        alert('Ошибка при удалении панорамы');
+    } finally {
+        // Скрываем индикатор загрузки
+        state.loading = false;
+        document.getElementById('loader').style.display = 'none';
+    }
 }
 
 /**
@@ -351,12 +418,14 @@ function renderThumbnails() {
     const activePanoramas = state.tour.panoramas.filter(p => p.status === 'active');
     
     activePanoramas.forEach(panorama => {
+        const thumbnailUrl = `/api/uploads/${panorama.filename}`;
+        
         // Миниатюра для превью
         const previewThumb = document.createElement('div');
         previewThumb.className = 'panorama-thumbnail';
         previewThumb.setAttribute('data-id', panorama.id);
         previewThumb.innerHTML = `
-            <img src="https://via.placeholder.com/100x50" alt="${panorama.name}">
+            <img src="${thumbnailUrl}" alt="${panorama.name}">
             <p>${panorama.name}</p>
         `;
         previewThumbnails.appendChild(previewThumb);
@@ -366,7 +435,7 @@ function renderThumbnails() {
         editorThumb.className = 'panorama-thumbnail';
         editorThumb.setAttribute('data-id', panorama.id);
         editorThumb.innerHTML = `
-            <img src="https://via.placeholder.com/100x50" alt="${panorama.name}">
+            <img src="${thumbnailUrl}" alt="${panorama.name}">
             <p>${panorama.name}</p>
         `;
         editorThumbnails.appendChild(editorThumb);
@@ -471,6 +540,9 @@ function selectPanorama(panoramaId) {
     
     // Перерисовываем хотспоты для выбранной панорамы
     renderHotspots();
+    
+    // Обновляем Pannellum
+    initPannellum();
 }
 
 /**
@@ -517,9 +589,12 @@ function handleFiles(files) {
  * Загрузка файлов
  */
 async function uploadFiles() {
-    const fileInput = document.getElementById('file-input');
+    if (!state.tour || !state.tour.id) {
+        alert('Ошибка: ID тура не определен');
+        return;
+    }
     
-    if (!fileInput.files || fileInput.files.length === 0) {
+    if (!state.selectedFiles || state.selectedFiles.length === 0) {
         alert('Пожалуйста, выберите файлы для загрузки');
         return;
     }
@@ -529,52 +604,15 @@ async function uploadFiles() {
     document.getElementById('loader').style.display = 'flex';
     
     try {
-        // Имитация загрузки
-        setTimeout(() => {
-            // Скрываем индикатор загрузки
-            state.loading = false;
-            document.getElementById('loader').style.display = 'none';
+        // Загружаем каждый файл по очереди
+        for (let i = 0; i < state.selectedFiles.length; i++) {
+            const file = state.selectedFiles[i];
             
-            // Закрываем модальное окно
-            document.getElementById('upload-modal').classList.remove('active');
-            
-            // Очищаем список файлов
-            document.getElementById('file-list').innerHTML = '';
-            fileInput.value = '';
-            
-            // Имитируем добавление новых панорам
-            const newPanoramas = Array.from(fileInput.files).map((file, index) => {
-                return {
-                    id: `new-${Date.now()}-${index}`,
-                    name: file.name.split('.')[0],
-                    uploadedAt: new Date().toISOString(),
-                    status: 'active'
-                };
-            });
-            
-            // Добавляем новые панорамы в состояние
-            if (!state.tour.panoramas) {
-                state.tour.panoramas = [];
-            }
-            state.tour.panoramas = [...state.tour.panoramas, ...newPanoramas];
-            
-            // Если это первые панорамы, устанавливаем стартовую
-            if (state.tour.panoramas.length === newPanoramas.length) {
-                state.tour.settings.startPanorama = newPanoramas[0].id;
-                state.currentPanoramaId = newPanoramas[0].id;
+            // Проверяем, что это изображение
+            if (!file.type.startsWith('image/')) {
+                continue;
             }
             
-            // Обновляем интерфейс
-            renderTourData();
-            
-            alert('Панорамы успешно загружены!');
-        }, 2000);
-        
-        // В будущем этот код будет заменен на реальный запрос
-        /*
-        // Для каждого файла создаем FormData и отправляем запрос
-        for (let i = 0; i < fileInput.files.length; i++) {
-            const file = fileInput.files[i];
             const formData = new FormData();
             formData.append('file', file);
             
@@ -584,21 +622,19 @@ async function uploadFiles() {
         // Обновляем данные тура
         await loadTourData(state.tour.id);
         
-        // Скрываем индикатор загрузки
-        state.loading = false;
-        document.getElementById('loader').style.display = 'none';
-        
         // Закрываем модальное окно
         document.getElementById('upload-modal').classList.remove('active');
         
         // Очищаем список файлов
         document.getElementById('file-list').innerHTML = '';
-        fileInput.value = '';
-        */
+        document.getElementById('file-input').value = '';
+        state.selectedFiles = [];
+        
+        alert('Панорамы успешно загружены!');
     } catch (error) {
         console.error('Ошибка при загрузке файлов:', error);
         alert('Ошибка при загрузке файлов');
-        
+    } finally {
         // Скрываем индикатор загрузки
         state.loading = false;
         document.getElementById('loader').style.display = 'none';
@@ -610,62 +646,36 @@ async function uploadFiles() {
  * @param {string} panoramaId - ID панорамы
  * @param {string} newName - Новое название
  */
-function updatePanoramaName(panoramaId, newName) {
-    if (!state.tour || !state.tour.panoramas) return;
+async function updatePanoramaName(panoramaId, newName) {
+    if (!state.tour || !state.tour.id) return;
     
-    // Находим индекс панорамы
-    const panoramaIndex = state.tour.panoramas.findIndex(p => p.id === panoramaId);
-    
-    if (panoramaIndex === -1) return;
-    
-    // Обновляем название
-    state.tour.panoramas[panoramaIndex].name = newName;
-    
-    // Обновляем интерфейс
-    renderTourData();
-    
-    // В будущем здесь будет запрос к API
-    // await updatePanorama(state.tour.id, panoramaId, { name: newName });
-}
-
-/**
- * Удаление панорамы
- * @param {string} panoramaId - ID панорамы
- */
-function deletePanorama(panoramaId) {
-    if (!state.tour || !state.tour.panoramas) return;
-    
-    // Находим индекс панорамы
-    const panoramaIndex = state.tour.panoramas.findIndex(p => p.id === panoramaId);
-    
-    if (panoramaIndex === -1) return;
-    
-    // Удаляем панораму
-    state.tour.panoramas.splice(panoramaIndex, 1);
-    
-    // Если это была стартовая панорама, обновляем настройки
-    if (state.tour.settings.startPanorama === panoramaId) {
-        state.tour.settings.startPanorama = state.tour.panoramas.length > 0 
-            ? state.tour.panoramas[0].id 
-            : null;
+    try {
+        // Показываем индикатор загрузки
+        state.loading = true;
+        document.getElementById('loader').style.display = 'flex';
+        
+        // Отправляем запрос на обновление панорамы
+        await updatePanorama(state.tour.id, panoramaId, { name: newName });
+        
+        // Обновляем данные тура
+        await loadTourData(state.tour.id);
+        
+        // Показываем сообщение об успешном обновлении
+        alert('Название панорамы успешно обновлено!');
+    } catch (error) {
+        console.error('Ошибка при обновлении названия панорамы:', error);
+        alert('Ошибка при обновлении названия панорамы');
+    } finally {
+        // Скрываем индикатор загрузки
+        state.loading = false;
+        document.getElementById('loader').style.display = 'none';
     }
-    
-    // Если это была текущая панорама, выбираем другую
-    if (state.currentPanoramaId === panoramaId) {
-        state.currentPanoramaId = state.tour.settings.startPanorama;
-    }
-    
-    // Обновляем интерфейс
-    renderTourData();
-    
-    // В будущем здесь будет запрос к API
-    // await deletePanorama(state.tour.id, panoramaId);
 }
 
 /**
  * Добавление нового хотспота
  */
-function addHotspot() {
+async function addHotspot() {
     if (!state.tour || !state.currentPanoramaId) {
         alert('Сначала выберите панораму');
         return;
@@ -684,29 +694,39 @@ function addHotspot() {
     // Определяем целевую панораму (первую доступную)
     const targetPanoramaId = activePanoramas[0].id;
     
-    // Создаем новый хотспот
-    const newHotspot = {
-        id: `hotspot-${Date.now()}`,
-        panoramaId: state.currentPanoramaId,
-        name: `Hotspot #${(state.tour.hotspots?.length || 0) + 1}`,
-        target: targetPanoramaId
-    };
-    
-    // Добавляем хотспот в состояние
-    if (!state.tour.hotspots) {
-        state.tour.hotspots = [];
+    try {
+        // Показываем индикатор загрузки
+        state.loading = true;
+        document.getElementById('loader').style.display = 'flex';
+        
+        // Отправляем запрос на создание хотспота
+        await createHotspot(state.tour.id, {
+            name: `Hotspot #${(state.tour.hotspots?.length || 0) + 1}`,
+            panoramaId: state.currentPanoramaId,
+            targetPanoramaId: targetPanoramaId,
+            position: { x: 0, y: 0, z: 0 }
+        });
+        
+        // Обновляем данные тура
+        await loadTourData(state.tour.id);
+        
+        // Показываем сообщение об успешном создании
+        alert('Хотспот успешно создан!');
+    } catch (error) {
+        console.error('Ошибка при создании хотспота:', error);
+        alert('Ошибка при создании хотспота');
+    } finally {
+        // Скрываем индикатор загрузки
+        state.loading = false;
+        document.getElementById('loader').style.display = 'none';
     }
-    state.tour.hotspots.push(newHotspot);
-    
-    // Обновляем интерфейс
-    renderHotspots();
 }
 
 /**
  * Редактирование хотспота
  * @param {string} hotspotId - ID хотспота
  */
-function editHotspot(hotspotId) {
+async function editHotspot(hotspotId) {
     if (!state.tour || !state.tour.hotspots) return;
     
     // Находим хотспот
@@ -719,11 +739,27 @@ function editHotspot(hotspotId) {
     
     if (!newName) return;
     
-    // Обновляем название
-    hotspot.name = newName;
-    
-    // Обновляем интерфейс
-    renderHotspots();
+    try {
+        // Показываем индикатор загрузки
+        state.loading = true;
+        document.getElementById('loader').style.display = 'flex';
+        
+        // Отправляем запрос на обновление хотспота
+        await updateHotspot(state.tour.id, hotspotId, { name: newName });
+        
+        // Обновляем данные тура
+        await loadTourData(state.tour.id);
+        
+        // Показываем сообщение об успешном обновлении
+        alert('Хотспот успешно обновлен!');
+    } catch (error) {
+        console.error('Ошибка при обновлении хотспота:', error);
+        alert('Ошибка при обновлении хотспота');
+    } finally {
+        // Скрываем индикатор загрузки
+        state.loading = false;
+        document.getElementById('loader').style.display = 'none';
+    }
 }
 
 /**
@@ -733,107 +769,290 @@ function updateHorizon() {
     const pitch = document.getElementById('pitch-slider').value;
     const yaw = document.getElementById('yaw-slider').value;
     
-    // В реальном приложении здесь будет обновление положения 3D-просмотра
-    console.log('Horizon updated:', { pitch, yaw });
+    // Если есть инициализированный viewer, обновляем значения
+    if (window.editorViewer) {
+        window.editorViewer.setPitch(parseFloat(pitch));
+        window.editorViewer.setYaw(parseFloat(yaw));
+    }
 }
 
-/**
- * Сброс горизонта
- */
-function resetHorizon() {
-    document.getElementById('pitch-slider').value = 0;
-    document.getElementById('yaw-slider').value = 0;
-    
-    updateHorizon();
-}
+// API URL
+const API_URL = '/api';
 
 /**
- * Сохранение настроек тура
+ * Базовая функция для отправки запросов к API
+ * @param {string} url - URL эндпоинта
+ * @param {string} method - HTTP метод (GET, POST, PUT, DELETE)
+ * @param {Object} data - Данные для отправки (для POST, PUT)
+ * @param {boolean} requiresAuth - Требуется ли авторизация
+ * @returns {Promise<Object>} Ответ от API
  */
-function saveTourSettings() {
-    if (!state.tour) return;
+async function apiRequest(url, method = 'GET', data = null, requiresAuth = true) {
+    const headers = {
+        'Content-Type': 'application/json'
+    };
     
-    // Получаем значения из интерфейса
-    const logo = document.getElementById('logo-select').value;
-    const startPanorama = document.getElementById('start-panorama-select').value;
+    // Добавляем токен авторизации, если требуется
+    if (requiresAuth) {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            // Если токена нет, перенаправляем на страницу входа
+            window.location.href = '/pages/sing-in.html';
+            return;
+        }
+        headers['Authorization'] = `Bearer ${token}`;
+    }
     
-    // Обновляем настройки в состоянии
-    state.tour.settings.logo = logo;
-    state.tour.settings.startPanorama = startPanorama;
+    const options = {
+        method,
+        headers
+    };
     
-    // В будущем здесь будет запрос к API
-    // await updateTour(state.tour.id, { settings: state.tour.settings });
-}
-
-/**
- * Сохранение тура
- */
-async function saveTour() {
-    if (!state.tour) return;
+    // Добавляем тело запроса для POST и PUT
+    if (data && (method === 'POST' || method === 'PUT')) {
+        options.body = JSON.stringify(data);
+    }
     
     try {
-        // Показываем индикатор загрузки
-        state.loading = true;
-        document.getElementById('loader').style.display = 'flex';
+        const response = await fetch(`${API_URL}${url}`, options);
         
-        // Имитация запроса
-        setTimeout(() => {
-            // Скрываем индикатор загрузки
-            state.loading = false;
-            document.getElementById('loader').style.display = 'none';
-            
-            alert('Тур успешно сохранен!');
-        }, 1000);
+        // Проверяем статус ответа
+        if (response.status === 401) {
+            // Если не авторизован, удаляем токен и перенаправляем на страницу входа
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = '/pages/sing-in.html';
+            return;
+        }
         
-        // В будущем этот код будет заменен на реальный запрос
-        /*
-        await updateTour(state.tour.id, state.tour);
+        const result = await response.json();
         
-        // Скрываем индикатор загрузки
-        state.loading = false;
-        document.getElementById('loader').style.display = 'none';
+        if (!response.ok) {
+            throw {
+                status: response.status,
+                error: result.error,
+                code: result.code
+            };
+        }
         
-        alert('Тур успешно сохранен!');
-        */
+        return result;
     } catch (error) {
-        console.error('Ошибка при сохранении тура:', error);
-        alert('Ошибка при сохранении тура');
-        
-        // Скрываем индикатор загрузки
-        state.loading = false;
-        document.getElementById('loader').style.display = 'none';
+        console.error('API error:', error);
+        throw error;
     }
 }
 
 /**
- * Функция для поделиться туром
+ * Получение данных пользователя
+ * @returns {Promise<Object>} Данные пользователя
  */
-function shareTour() {
-    if (!state.tour) return;
-    
-    // Создаем URL для публичного доступа
-    const publicUrl = `${window.location.origin}/view.html?id=${state.tour.id}`;
-    
-    // Копируем URL в буфер обмена
-    navigator.clipboard.writeText(publicUrl)
-        .then(() => {
-            alert('Ссылка на тур скопирована в буфер обмена');
-        })
-        .catch(err => {
-            console.error('Ошибка при копировании ссылки:', err);
-            alert(`Ссылка на тур: ${publicUrl}`);
-        });
+async function getCurrentUser() {
+    return apiRequest('/auth/me');
 }
 
 /**
- * Форматирование даты
- * @param {string} dateString - Строка с датой в формате ISO
- * @returns {string} Отформатированная дата (ДД.ММ.ГГГГ)
+ * Получение списка туров
+ * @param {Object} params - Параметры запроса (поиск, сортировка)
+ * @returns {Promise<Array>} Список туров
  */
-function formatDate(dateString) {
-    const date = new Date(dateString);
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}.${month}.${year}`;
+async function getTours(params = {}) {
+    let url = '/tours';
+    
+    // Добавляем параметры запроса, если они есть
+    if (Object.keys(params).length > 0) {
+        const queryParams = new URLSearchParams();
+        
+        if (params.search) {
+            queryParams.append('search', params.search);
+        }
+        
+        if (params.sortField && params.sortOrder) {
+            queryParams.append('sortField', params.sortField);
+            queryParams.append('sortOrder', params.sortOrder);
+        }
+        
+        if (params.page) {
+            queryParams.append('page', params.page);
+        }
+        
+        if (params.limit) {
+            queryParams.append('limit', params.limit);
+        }
+        
+        url += `?${queryParams.toString()}`;
+    }
+    
+    return apiRequest(url);
 }
+
+/**
+ * Получение данных конкретного тура
+ * @param {string} tourId - ID тура
+ * @returns {Promise<Object>} Данные тура
+ */
+async function getTour(tourId) {
+    return apiRequest(`/tours/${tourId}`);
+}
+
+/**
+ * Создание нового тура
+ * @param {Object} tourData - Данные для создания тура
+ * @returns {Promise<Object>} Созданный тур
+ */
+async function createTour(tourData) {
+    return apiRequest('/tours', 'POST', tourData);
+}
+
+/**
+ * Обновление тура
+ * @param {string} tourId - ID тура
+ * @param {Object} tourData - Данные для обновления
+ * @returns {Promise<Object>} Обновленный тур
+ */
+async function updateTour(tourId, tourData) {
+    return apiRequest(`/tours/${tourId}`, 'PUT', tourData);
+}
+
+/**
+ * Удаление тура
+ * @param {string} tourId - ID тура
+ * @returns {Promise<Object>} Результат удаления
+ */
+async function deleteTour(tourId) {
+    return apiRequest(`/tours/${tourId}`, 'DELETE');
+}
+
+/**
+ * Получение панорам для тура
+ * @param {string} tourId - ID тура
+ * @returns {Promise<Array>} Список панорам
+ */
+async function getPanoramas(tourId) {
+    return apiRequest(`/tours/${tourId}/panoramas`);
+}
+
+/**
+ * Загрузка новой панорамы
+ * @param {string} tourId - ID тура
+ * @param {FormData} formData - Данные формы с файлом
+ * @returns {Promise<Object>} Созданная панорама
+ */
+async function uploadPanorama(tourId, formData) {
+    const token = localStorage.getItem('token');
+    if (!token) {
+        window.location.href = '/pages/sing-in.html';
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_URL}/tours/${tourId}/panoramas`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            body: formData // Не устанавливаем Content-Type для формы с файлами
+        });
+        
+        if (response.status === 401) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = '/pages/sing-in.html';
+            return;
+        }
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+            throw {
+                status: response.status,
+                error: result.error,
+                code: result.code
+            };
+        }
+        
+        return result;
+    } catch (error) {
+        console.error('API error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Обновление панорамы
+ * @param {string} tourId - ID тура
+ * @param {string} panoramaId - ID панорамы
+ * @param {Object} data - Данные для обновления
+ * @returns {Promise<Object>} Обновленная панорама
+ */
+async function updatePanorama(tourId, panoramaId, data) {
+    return apiRequest(`/tours/${tourId}/panoramas/${panoramaId}`, 'PUT', data);
+}
+
+/**
+ * Удаление панорамы
+ * @param {string} tourId - ID тура
+ * @param {string} panoramaId - ID панорамы
+ * @returns {Promise<Object>} Результат удаления
+ */
+async function deletePanorama(tourId, panoramaId) {
+    return apiRequest(`/tours/${tourId}/panoramas/${panoramaId}`, 'DELETE');
+}
+
+/**
+ * Получение хотспотов для тура
+ * @param {string} tourId - ID тура
+ * @returns {Promise<Array>} Список хотспотов
+ */
+async function getHotspots(tourId) {
+    return apiRequest(`/tours/${tourId}/hotspots`);
+}
+
+/**
+ * Создание нового хотспота
+ * @param {string} tourId - ID тура
+ * @param {Object} data - Данные для создания хотспота
+ * @returns {Promise<Object>} Созданный хотспот
+ */
+async function createHotspot(tourId, data) {
+    return apiRequest(`/tours/${tourId}/hotspots`, 'POST', data);
+}
+
+/**
+ * Обновление хотспота
+ * @param {string} tourId - ID тура
+ * @param {string} hotspotId - ID хотспота
+ * @param {Object} data - Данные для обновления
+ * @returns {Promise<Object>} Обновленный хотспот
+ */
+async function updateHotspot(tourId, hotspotId, data) {
+    return apiRequest(`/tours/${tourId}/hotspots/${hotspotId}`, 'PUT', data);
+}
+
+/**
+ * Удаление хотспота
+ * @param {string} tourId - ID тура
+ * @param {string} hotspotId - ID хотспота
+ * @returns {Promise<Object>} Результат удаления
+ */
+async function deleteHotspot(tourId, hotspotId) {
+    return apiRequest(`/tours/${tourId}/hotspots/${hotspotId}`, 'DELETE');
+}
+
+// Экспортируем функции для использования в других файлах
+export {
+    apiRequest,
+    getCurrentUser,
+    getTours,
+    getTour,
+    createTour,
+    updateTour,
+    deleteTour,
+    getPanoramas,
+    uploadPanorama,
+    updatePanorama,
+    deletePanorama,
+    getHotspots,
+    createHotspot,
+    updateHotspot,
+    deleteHotspot
+};
