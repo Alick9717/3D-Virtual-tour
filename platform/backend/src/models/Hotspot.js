@@ -1,189 +1,420 @@
-const { DataTypes } = require('sequelize');
+const { models } = require('../models');
+const { Op } = require('sequelize');
 
-module.exports = (sequelize) => {
-  const Hotspot = sequelize.define('Hotspot', {
-    id: {
-      type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4,
-      primaryKey: true
-    },
-    name: {
-      type: DataTypes.STRING,
-      allowNull: false,
-      validate: {
-        notEmpty: {
-          msg: 'Название хотспота не может быть пустым'
-        },
-        len: {
-          args: [1, 100],
-          msg: 'Название хотспота должно быть от 1 до 100 символов'
-        }
-      }
-    },
-    // Тип хотспота (scene - переход на другую панораму, info - информация)
-    type: {
-      type: DataTypes.ENUM('scene', 'info'),
-      defaultValue: 'scene',
-      validate: {
-        isIn: {
-          args: [['scene', 'info']],
-          msg: 'Тип хотспота должен быть scene или info'
-        }
-      }
-    },
-    // Позиция хотспота (сферические координаты)
-    position: {
-      type: DataTypes.JSONB,
-      defaultValue: {
-        x: 0, // yaw - горизонтальный угол (-180 до 180)
-        y: 0, // pitch - вертикальный угол (-90 до 90)
-        z: 0  // дополнительный параметр для специальных случаев
-      },
-      validate: {
-        isValidPosition(value) {
-          if (typeof value !== 'object' || value === null) {
-            throw new Error('Позиция должна быть объектом');
-          }
-          
-          if (value.x === undefined || typeof value.x !== 'number' || value.x < -180 || value.x > 180) {
-            throw new Error('x (yaw) должен быть числом в диапазоне -180 до 180');
-          }
-          
-          if (value.y === undefined || typeof value.y !== 'number' || value.y < -90 || value.y > 90) {
-            throw new Error('y (pitch) должен быть числом в диапазоне -90 до 90');
-          }
-          
-          if (value.z !== undefined && typeof value.z !== 'number') {
-            throw new Error('z должен быть числом');
-          }
-        }
-      }
-    },
-    // Дополнительная информация о хотспоте
-    content: {
-      type: DataTypes.TEXT,
-      allowNull: true
-    },
-    // CSS-класс для хотспота (для кастомного отображения)
-    cssClass: {
-      type: DataTypes.STRING,
-      allowNull: true
-    },
-    // Дополнительные параметры для хотспота
-    parameters: {
-      type: DataTypes.JSONB,
-      defaultValue: {
-        tooltip: true,   // Показывать всплывающую подсказку
-        tooltipArrow: true, // Показывать стрелку в подсказке
-        tooltipDelay: 200,  // Задержка перед показом подсказки (мс)
-        scaleToContainer: true, // Масштабировать размер под контейнер
-        clickable: true    // Можно ли кликнуть по хотспоту
-      },
-      validate: {
-        isValidParameters(value) {
-          if (typeof value !== 'object' || value === null) {
-            throw new Error('Параметры должны быть объектом');
-          }
-          
-          if (value.tooltip !== undefined && typeof value.tooltip !== 'boolean') {
-            throw new Error('tooltip должен быть логическим значением');
-          }
-          
-          if (value.tooltipArrow !== undefined && typeof value.tooltipArrow !== 'boolean') {
-            throw new Error('tooltipArrow должен быть логическим значением');
-          }
-          
-          if (value.tooltipDelay !== undefined && (typeof value.tooltipDelay !== 'number' || value.tooltipDelay < 0)) {
-            throw new Error('tooltipDelay должен быть положительным числом');
-          }
-          
-          if (value.scaleToContainer !== undefined && typeof value.scaleToContainer !== 'boolean') {
-            throw new Error('scaleToContainer должен быть логическим значением');
-          }
-          
-          if (value.clickable !== undefined && typeof value.clickable !== 'boolean') {
-            throw new Error('clickable должен быть логическим значением');
-          }
-        }
-      }
-    }
-  }, {
-    timestamps: true,
-    tableName: 'hotspots'
-  });
-
-  // Определяем ассоциации
-  Hotspot.associate = (models) => {
-    // Хотспот принадлежит туру
-    Hotspot.belongsTo(models.Tour, {
-      foreignKey: 'tourId',
-      as: 'tour',
-      onDelete: 'CASCADE' // Если удаляется тур, удаляются и его хотспоты
-    });
+/**
+ * Получение списка хотспотов для тура
+ * @param {Object} request - Объект запроса Fastify
+ * @param {Object} reply - Объект ответа Fastify
+ */
+async function getHotspots(request, reply) {
+  try {
+    const userId = request.user.id;
+    const tourId = request.params.tourId;
     
-    // Хотспот принадлежит панораме (источник)
-    Hotspot.belongsTo(models.Panorama, {
-      foreignKey: 'panoramaId',
-      as: 'panorama',
-      onDelete: 'CASCADE' // Если удаляется панорама, удаляются и её хотспоты
-    });
+    // Ищем тур по ID
+    const tour = await models.Tour.findByPk(tourId);
     
-    // Хотспот может ссылаться на другую панораму (цель)
-    Hotspot.belongsTo(models.Panorama, {
-      foreignKey: 'targetPanoramaId',
-      as: 'targetPanorama'
-    });
-  };
-
-  // Методы для работы с позицией хотспота
-  Hotspot.prototype.setPosition = function(x, y, z = 0) {
-    this.position = { x, y, z };
-    return this.save();
-  };
-
-  // Метод для форматирования данных хотспота для Pannellum
-  Hotspot.prototype.toPannellumFormat = function() {
-    const result = {
-      id: this.id,
-      pitch: this.position.y,
-      yaw: this.position.x,
-      text: this.name,
-      type: this.type === 'scene' ? 'scene' : 'info'
-    };
-
-    // Добавляем целевую панораму для хотспотов типа 'scene'
-    if (this.type === 'scene' && this.targetPanoramaId) {
-      result.sceneId = this.targetPanoramaId;
+    // Проверяем, существует ли тур
+    if (!tour) {
+      return reply.code(404).send({
+        error: 'Тур не найден',
+        code: 'TOUR_NOT_FOUND'
+      });
     }
-
-    // Добавляем CSS-класс, если указан
-    if (this.cssClass) {
-      result.cssClass = this.cssClass;
+    
+    // Проверяем, принадлежит ли тур пользователю
+    if (tour.userId !== userId && request.user.role !== 'admin') {
+      return reply.code(403).send({
+        error: 'Доступ запрещен',
+        code: 'ACCESS_DENIED'
+      });
     }
-
-    // Добавляем контент для хотспотов типа 'info'
-    if (this.type === 'info' && this.content) {
-      result.content = this.content;
-    }
-
-    return result;
-  };
-
-  // Статический метод для поиска по туру
-  Hotspot.findByTour = function(tourId, options = {}) {
-    return this.findAll({
+    
+    // Получаем хотспоты тура
+    const hotspots = await models.Hotspot.findAll({
       where: { tourId },
-      ...options
+      include: [
+        {
+          model: models.Panorama,
+          as: 'panorama',
+          attributes: ['id', 'name']
+        },
+        {
+          model: models.Panorama,
+          as: 'targetPanorama',
+          attributes: ['id', 'name']
+        }
+      ]
     });
-  };
-
-  // Статический метод для поиска по панораме
-  Hotspot.findByPanorama = function(panoramaId, options = {}) {
-    return this.findAll({
-      where: { panoramaId },
-      ...options
+    
+    return hotspots;
+  } catch (error) {
+    request.log.error('Ошибка при получении списка хотспотов:', error);
+    return reply.code(500).send({
+      error: 'Ошибка сервера при получении списка хотспотов',
+      code: 'SERVER_ERROR'
     });
-  };
+  }
+}
 
-  return Hotspot;
+/**
+ * Создание нового хотспота
+ * @param {Object} request - Объект запроса Fastify
+ * @param {Object} reply - Объект ответа Fastify
+ */
+async function createHotspot(request, reply) {
+  try {
+    const userId = request.user.id;
+    const tourId = request.params.tourId;
+    const { name, panoramaId, targetPanoramaId, position, type, content, cssClass, parameters } = request.body;
+    
+    // Ищем тур по ID
+    const tour = await models.Tour.findByPk(tourId);
+    
+    // Проверяем, существует ли тур
+    if (!tour) {
+      return reply.code(404).send({
+        error: 'Тур не найден',
+        code: 'TOUR_NOT_FOUND'
+      });
+    }
+    
+    // Проверяем, принадлежит ли тур пользователю
+    if (tour.userId !== userId && request.user.role !== 'admin') {
+      return reply.code(403).send({
+        error: 'Доступ запрещен',
+        code: 'ACCESS_DENIED'
+      });
+    }
+    
+    // Проверяем, существует ли панорама
+    const panorama = await models.Panorama.findOne({
+      where: {
+        id: panoramaId,
+        tourId
+      }
+    });
+    
+    if (!panorama) {
+      return reply.code(404).send({
+        error: 'Панорама не найдена',
+        code: 'PANORAMA_NOT_FOUND'
+      });
+    }
+    
+    // Проверяем, существует ли целевая панорама
+    if (targetPanoramaId) {
+      const targetPanorama = await models.Panorama.findOne({
+        where: {
+          id: targetPanoramaId,
+          tourId
+        }
+      });
+      
+      if (!targetPanorama) {
+        return reply.code(404).send({
+          error: 'Целевая панорама не найдена',
+          code: 'TARGET_PANORAMA_NOT_FOUND'
+        });
+      }
+    }
+    
+    // Создаем новый хотспот
+    const newHotspot = await models.Hotspot.create({
+      tourId,
+      panoramaId,
+      targetPanoramaId,
+      name,
+      position: position || { x: 0, y: 0, z: 0 },
+      type: type || 'scene',
+      content,
+      cssClass,
+      parameters
+    });
+    
+    // Возвращаем созданный хотспот с включенными связями
+    const createdHotspot = await models.Hotspot.findByPk(newHotspot.id, {
+      include: [
+        {
+          model: models.Panorama,
+          as: 'panorama',
+          attributes: ['id', 'name']
+        },
+        {
+          model: models.Panorama,
+          as: 'targetPanorama',
+          attributes: ['id', 'name']
+        }
+      ]
+    });
+    
+    return createdHotspot;
+  } catch (error) {
+    request.log.error('Ошибка при создании хотспота:', error);
+    
+    // Проверяем, является ли ошибка ошибкой валидации Sequelize
+    if (error.name === 'SequelizeValidationError') {
+      const validationErrors = error.errors.map(err => ({
+        field: err.path,
+        message: err.message
+      }));
+      
+      return reply.code(400).send({
+        error: 'Ошибка валидации данных',
+        code: 'VALIDATION_ERROR',
+        details: validationErrors
+      });
+    }
+    
+    return reply.code(500).send({
+      error: 'Ошибка сервера при создании хотспота',
+      code: 'SERVER_ERROR'
+    });
+  }
+}
+
+/**
+ * Обновление хотспота
+ * @param {Object} request - Объект запроса Fastify
+ * @param {Object} reply - Объект ответа Fastify
+ */
+async function updateHotspot(request, reply) {
+  try {
+    const userId = request.user.id;
+    const tourId = request.params.tourId;
+    const hotspotId = request.params.hotspotId;
+    const updates = request.body;
+    
+    // Ищем тур по ID
+    const tour = await models.Tour.findByPk(tourId);
+    
+    // Проверяем, существует ли тур
+    if (!tour) {
+      return reply.code(404).send({
+        error: 'Тур не найден',
+        code: 'TOUR_NOT_FOUND'
+      });
+    }
+    
+    // Проверяем, принадлежит ли тур пользователю
+    if (tour.userId !== userId && request.user.role !== 'admin') {
+      return reply.code(403).send({
+        error: 'Доступ запрещен',
+        code: 'ACCESS_DENIED'
+      });
+    }
+    
+    // Ищем хотспот
+    const hotspot = await models.Hotspot.findOne({
+      where: {
+        id: hotspotId,
+        tourId
+      }
+    });
+    
+    if (!hotspot) {
+      return reply.code(404).send({
+        error: 'Хотспот не найден',
+        code: 'HOTSPOT_NOT_FOUND'
+      });
+    }
+    
+    // Проверяем, существует ли целевая панорама, если она указана
+    if (updates.targetPanoramaId) {
+      const targetPanorama = await models.Panorama.findOne({
+        where: {
+          id: updates.targetPanoramaId,
+          tourId
+        }
+      });
+      
+      if (!targetPanorama) {
+        return reply.code(404).send({
+          error: 'Целевая панорама не найдена',
+          code: 'TARGET_PANORAMA_NOT_FOUND'
+        });
+      }
+    }
+    
+    // Обновляем хотспот
+    await hotspot.update(updates);
+    
+    // Получаем обновленный хотспот со связями
+    const updatedHotspot = await models.Hotspot.findByPk(hotspot.id, {
+      include: [
+        {
+          model: models.Panorama,
+          as: 'panorama',
+          attributes: ['id', 'name']
+        },
+        {
+          model: models.Panorama,
+          as: 'targetPanorama',
+          attributes: ['id', 'name']
+        }
+      ]
+    });
+    
+    return updatedHotspot;
+  } catch (error) {
+    request.log.error('Ошибка при обновлении хотспота:', error);
+    
+    // Проверяем, является ли ошибка ошибкой валидации Sequelize
+    if (error.name === 'SequelizeValidationError') {
+      const validationErrors = error.errors.map(err => ({
+        field: err.path,
+        message: err.message
+      }));
+      
+      return reply.code(400).send({
+        error: 'Ошибка валидации данных',
+        code: 'VALIDATION_ERROR',
+        details: validationErrors
+      });
+    }
+    
+    return reply.code(500).send({
+      error: 'Ошибка сервера при обновлении хотспота',
+      code: 'SERVER_ERROR'
+    });
+  }
+}
+
+/**
+ * Удаление хотспота
+ * @param {Object} request - Объект запроса Fastify
+ * @param {Object} reply - Объект ответа Fastify
+ */
+async function deleteHotspot(request, reply) {
+  try {
+    const userId = request.user.id;
+    const tourId = request.params.tourId;
+    const hotspotId = request.params.hotspotId;
+    
+    // Ищем тур по ID
+    const tour = await models.Tour.findByPk(tourId);
+    
+    // Проверяем, существует ли тур
+    if (!tour) {
+      return reply.code(404).send({
+        error: 'Тур не найден',
+        code: 'TOUR_NOT_FOUND'
+      });
+    }
+    
+    // Проверяем, принадлежит ли тур пользователю
+    if (tour.userId !== userId && request.user.role !== 'admin') {
+      return reply.code(403).send({
+        error: 'Доступ запрещен',
+        code: 'ACCESS_DENIED'
+      });
+    }
+    
+    // Ищем хотспот
+    const hotspot = await models.Hotspot.findOne({
+      where: {
+        id: hotspotId,
+        tourId
+      }
+    });
+    
+    if (!hotspot) {
+      return reply.code(404).send({
+        error: 'Хотспот не найден',
+        code: 'HOTSPOT_NOT_FOUND'
+      });
+    }
+    
+    // Удаляем хотспот
+    await hotspot.destroy();
+    
+    return { success: true };
+  } catch (error) {
+    request.log.error('Ошибка при удалении хотспота:', error);
+    return reply.code(500).send({
+      error: 'Ошибка сервера при удалении хотспота',
+      code: 'SERVER_ERROR'
+    });
+  }
+}
+
+/**
+ * Получение хотспотов для конкретной панорамы
+ * @param {Object} request - Объект запроса Fastify
+ * @param {Object} reply - Объект ответа Fastify
+ */
+async function getHotspotsByPanorama(request, reply) {
+  try {
+    const userId = request.user.id;
+    const tourId = request.params.tourId;
+    const panoramaId = request.params.panoramaId;
+    
+    // Ищем тур по ID
+    const tour = await models.Tour.findByPk(tourId);
+    
+    // Проверяем, существует ли тур
+    if (!tour) {
+      return reply.code(404).send({
+        error: 'Тур не найден',
+        code: 'TOUR_NOT_FOUND'
+      });
+    }
+    
+    // Проверяем, принадлежит ли тур пользователю или опубликован ли он
+    if (tour.userId !== userId && request.user.role !== 'admin' && tour.status !== 'published') {
+      return reply.code(403).send({
+        error: 'Доступ запрещен',
+        code: 'ACCESS_DENIED'
+      });
+    }
+    
+    // Проверяем, существует ли панорама
+    const panorama = await models.Panorama.findOne({
+      where: {
+        id: panoramaId,
+        tourId
+      }
+    });
+    
+    if (!panorama) {
+      return reply.code(404).send({
+        error: 'Панорама не найдена',
+        code: 'PANORAMA_NOT_FOUND'
+      });
+    }
+    
+    // Получаем хотспоты для панорамы
+    const hotspots = await models.Hotspot.findAll({
+      where: { 
+        tourId,
+        panoramaId
+      },
+      include: [
+        {
+          model: models.Panorama,
+          as: 'targetPanorama',
+          attributes: ['id', 'name', 'filename']
+        }
+      ]
+    });
+    
+    // Форматируем хотспоты для Pannellum
+    const formattedHotspots = hotspots.map(hotspot => hotspot.toPannellumFormat());
+    
+    return formattedHotspots;
+  } catch (error) {
+    request.log.error('Ошибка при получении хотспотов панорамы:', error);
+    return reply.code(500).send({
+      error: 'Ошибка сервера при получении хотспотов панорамы',
+      code: 'SERVER_ERROR'
+    });
+  }
+}
+
+module.exports = {
+  getHotspots,
+  createHotspot,
+  updateHotspot,
+  deleteHotspot,
+  getHotspotsByPanorama
 };

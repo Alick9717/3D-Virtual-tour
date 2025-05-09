@@ -1,5 +1,12 @@
 const { models } = require('../models');
-const { Op } = require('sequelize');
+const { Op, Sequelize } = require('sequelize');
+const fs = require('fs');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
+const config = require('../config/env');
+
+// Директория для загруженных файлов
+const uploadsDir = path.join(__dirname, '../../uploads');
 
 /**
  * Получение списка всех туров пользователя
@@ -128,17 +135,25 @@ async function getTourById(request, reply) {
         {
           model: models.Panorama,
           as: 'panoramas',
-          required: false
+          required: false,
+          order: [['displayOrder', 'ASC'], ['createdAt', 'ASC']]
         },
         {
           model: models.Hotspot,
           as: 'hotspots',
-          required: false
+          required: false,
+          include: [
+            {
+              model: models.Panorama,
+              as: 'targetPanorama',
+              attributes: ['id', 'name']
+            }
+          ]
         },
         {
           model: models.User,
           as: 'user',
-          attributes: ['id', 'name', 'email', 'avatar']
+          attributes: ['id', 'name', 'email']
         }
       ]
     });
@@ -171,13 +186,6 @@ async function getTourById(request, reply) {
         panorama.url = `/uploads/${panorama.filename}`;
       });
     }
-    
-    // Добавляем статистику просмотров (в будущем можно добавить отдельную таблицу для статистики)
-    tourData.viewsStats = {
-      totalViews: 0, // Здесь будут данные из статистики
-      uniqueVisitors: 0,
-      averageViewTime: 0
-    };
     
     return tourData;
   } catch (error) {
@@ -225,20 +233,15 @@ async function createTour(request, reply) {
       settings: {
         logo: 'standard',
         startPanorama: null,
-        controls: {
-          zoom: true,
-          rotate: true,
-          fullscreen: true
-        },
-        display: {
-          title: true,
-          compass: true,
-          hotspotTooltips: true
-        },
-        sharing: {
-          enabled: true,
-          platforms: ['facebook', 'twitter', 'email']
-        }
+        autoRotate: false,
+        compass: true,
+        hotSpotDebug: false
+      },
+      metaData: {
+        title: name,
+        description: description || name,
+        keywords: tags ? tags.join(', ') : '',
+        ogImage: ''
       }
     });
     
@@ -251,11 +254,29 @@ async function createTour(request, reply) {
       status: newTour.status,
       tags: newTour.tags,
       settings: newTour.settings,
+      metaData: newTour.metaData,
       createdAt: newTour.createdAt,
-      updatedAt: newTour.updatedAt
+      updatedAt: newTour.updatedAt,
+      panoramas: [],
+      hotspots: []
     };
   } catch (error) {
     request.log.error('Ошибка при создании тура:', error);
+    
+    // Проверяем, является ли ошибка ошибкой валидации Sequelize
+    if (error.name === 'SequelizeValidationError') {
+      const validationErrors = error.errors.map(err => ({
+        field: err.path,
+        message: err.message
+      }));
+      
+      return reply.code(400).send({
+        error: 'Ошибка валидации данных',
+        code: 'VALIDATION_ERROR',
+        details: validationErrors
+      });
+    }
+    
     return reply.code(500).send({
       error: 'Ошибка сервера при создании тура',
       code: 'SERVER_ERROR'
@@ -316,6 +337,14 @@ async function updateTour(request, reply) {
       };
     }
     
+    // Обрабатываем обновление метаданных
+    if (updates.metaData) {
+      updates.metaData = {
+        ...tour.metaData,
+        ...updates.metaData
+      };
+    }
+    
     // Обновляем тур
     await tour.update(updates);
     
@@ -325,19 +354,50 @@ async function updateTour(request, reply) {
         {
           model: models.Panorama,
           as: 'panoramas',
-          required: false
+          required: false,
+          order: [['displayOrder', 'ASC'], ['createdAt', 'ASC']]
         },
         {
           model: models.Hotspot,
           as: 'hotspots',
-          required: false
+          required: false,
+          include: [
+            {
+              model: models.Panorama,
+              as: 'targetPanorama',
+              attributes: ['id', 'name']
+            }
+          ]
         }
       ]
     });
     
-    return updatedTour;
+    // Добавляем URL для панорам
+    const tourData = updatedTour.toJSON();
+    if (tourData.panoramas && tourData.panoramas.length > 0) {
+      tourData.panoramas.forEach(panorama => {
+        panorama.url = `/uploads/${panorama.filename}`;
+      });
+    }
+    
+    return tourData;
   } catch (error) {
     request.log.error('Ошибка при обновлении тура:', error);
+    
+    // Проверяем, является ли ошибка ошибкой валидации Sequelize
+    if (error.name === 'SequelizeValidationError') {
+      const validationErrors = error.errors.map(err => ({
+        field: err.path,
+        message: err.message
+      }));
+      
+      return reply.code(400).send({
+        error: 'Ошибка валидации данных',
+        code: 'VALIDATION_ERROR',
+        details: validationErrors
+      });
+    }
+    
     return reply.code(500).send({
       error: 'Ошибка сервера при обновлении тура',
       code: 'SERVER_ERROR'
@@ -390,11 +450,7 @@ async function deleteTour(request, reply) {
       where: { tourId }
     });
     
-    // Удаляем файлы панорам (здесь нужно реализовать удаление физических файлов)
-    const fs = require('fs');
-    const path = require('path');
-    const uploadsDir = path.join(__dirname, '../../uploads');
-    
+    // Удаляем файлы панорам
     for (const panorama of panoramas) {
       const filePath = path.join(uploadsDir, panorama.filename);
       
@@ -438,7 +494,7 @@ async function getToursStats(request, reply) {
     const toursByStatus = await models.Tour.findAll({
       attributes: [
         'status', 
-        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
+        [Sequelize.fn('COUNT', Sequelize.col('id')), 'count']
       ],
       where: { userId },
       group: ['status']
@@ -448,7 +504,7 @@ async function getToursStats(request, reply) {
     const toursByObjectType = await models.Tour.findAll({
       attributes: [
         'objectType', 
-        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
+        [Sequelize.fn('COUNT', Sequelize.col('id')), 'count']
       ],
       where: { userId },
       group: ['objectType']
@@ -463,23 +519,36 @@ async function getToursStats(request, reply) {
       }]
     });
     
+    // Общее количество просмотров туров
+    const totalViews = await models.Tour.sum('views', {
+      where: { userId }
+    });
+    
     // Статистика по последним созданным турам (последние 5)
     const recentTours = await models.Tour.findAll({
       where: { userId },
       order: [['createdAt', 'DESC']],
       limit: 5,
-      attributes: ['id', 'name', 'status', 'createdAt']
+      attributes: ['id', 'name', 'status', 'createdAt', 'views']
+    });
+    
+    // Преобразуем результаты агрегации в объекты
+    const statusStats = {};
+    toursByStatus.forEach(item => {
+      statusStats[item.status] = parseInt(item.get('count'));
+    });
+    
+    const objectTypeStats = {};
+    toursByObjectType.forEach(item => {
+      objectTypeStats[item.objectType] = parseInt(item.get('count'));
     });
     
     return {
       totalTours,
-      toursByStatus: Object.fromEntries(
-        toursByStatus.map(item => [item.status, item.get('count')])
-      ),
-      toursByObjectType: Object.fromEntries(
-        toursByObjectType.map(item => [item.objectType, item.get('count')])
-      ),
+      toursByStatus: statusStats,
+      toursByObjectType: objectTypeStats,
       totalPanoramas,
+      totalViews: totalViews || 0,
       recentTours
     };
   } catch (error) {
@@ -539,16 +608,12 @@ async function duplicateTour(request, reply) {
       description: sourceTour.description,
       status: 'draft', // Всегда ставим статус "черновик" для копии
       tags: sourceTour.tags,
-      settings: sourceTour.settings
+      settings: sourceTour.settings,
+      metaData: sourceTour.metaData
     });
     
     // Копируем панорамы
     if (sourceTour.panoramas && sourceTour.panoramas.length > 0) {
-      const fs = require('fs');
-      const path = require('path');
-      const { v4: uuidv4 } = require('uuid');
-      const uploadsDir = path.join(__dirname, '../../uploads');
-      
       const panoramaMap = {}; // Для соответствия ID старых и новых панорам
       
       for (const panorama of sourceTour.panoramas) {
@@ -566,7 +631,11 @@ async function duplicateTour(request, reply) {
             tourId: newTour.id,
             name: panorama.name,
             filename: newFilename,
-            status: panorama.status
+            status: panorama.status,
+            fileSize: panorama.fileSize,
+            mimeType: panorama.mimeType,
+            metadata: panorama.metadata,
+            displayOrder: panorama.displayOrder
           });
           
           // Сохраняем соответствие ID
@@ -590,7 +659,11 @@ async function duplicateTour(request, reply) {
             panoramaId: panoramaMap[hotspot.panoramaId],
             targetPanoramaId,
             name: hotspot.name,
-            position: hotspot.position
+            position: hotspot.position,
+            type: hotspot.type,
+            content: hotspot.content,
+            cssClass: hotspot.cssClass,
+            parameters: hotspot.parameters
           });
         }
       }
@@ -615,16 +688,34 @@ async function duplicateTour(request, reply) {
       include: [
         {
           model: models.Panorama,
-          as: 'panoramas'
+          as: 'panoramas',
+          required: false,
+          order: [['displayOrder', 'ASC'], ['createdAt', 'ASC']]
         },
         {
           model: models.Hotspot,
-          as: 'hotspots'
+          as: 'hotspots',
+          required: false,
+          include: [
+            {
+              model: models.Panorama,
+              as: 'targetPanorama',
+              attributes: ['id', 'name']
+            }
+          ]
         }
       ]
     });
     
-    return createdTour;
+    // Добавляем URL для панорам
+    const tourData = createdTour.toJSON();
+    if (tourData.panoramas && tourData.panoramas.length > 0) {
+      tourData.panoramas.forEach(panorama => {
+        panorama.url = `/uploads/${panorama.filename}`;
+      });
+    }
+    
+    return tourData;
   } catch (error) {
     request.log.error('Ошибка при дублировании тура:', error);
     return reply.code(500).send({

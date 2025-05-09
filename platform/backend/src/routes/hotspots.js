@@ -19,6 +19,10 @@ const hotspotSchema = {
         z: { type: 'number' }
       }
     },
+    type: { type: 'string', enum: ['scene', 'info'] },
+    content: { type: ['string', 'null'] },
+    cssClass: { type: ['string', 'null'] },
+    parameters: { type: 'object' },
     tourId: { type: 'string' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' }
@@ -37,6 +41,35 @@ const getHotspotsSchema = {
     200: {
       type: 'array',
       items: hotspotSchema
+    }
+  }
+};
+
+const getHotspotsByPanoramaSchema = {
+  params: {
+    type: 'object',
+    required: ['tourId', 'panoramaId'],
+    properties: {
+      tourId: { type: 'string' },
+      panoramaId: { type: 'string' }
+    }
+  },
+  response: {
+    200: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          pitch: { type: 'number' },
+          yaw: { type: 'number' },
+          text: { type: 'string' },
+          type: { type: 'string' },
+          sceneId: { type: ['string', 'null'] },
+          cssClass: { type: ['string', 'null'] },
+          content: { type: ['string', 'null'] }
+        }
+      }
     }
   }
 };
@@ -63,7 +96,11 @@ const createHotspotSchema = {
           y: { type: 'number' },
           z: { type: 'number' }
         }
-      }
+      },
+      type: { type: 'string', enum: ['scene', 'info'] },
+      content: { type: ['string', 'null'] },
+      cssClass: { type: ['string', 'null'] },
+      parameters: { type: 'object' }
     }
   },
   response: {
@@ -92,7 +129,11 @@ const updateHotspotSchema = {
           y: { type: 'number' },
           z: { type: 'number' }
         }
-      }
+      },
+      type: { type: 'string', enum: ['scene', 'info'] },
+      content: { type: ['string', 'null'] },
+      cssClass: { type: ['string', 'null'] },
+      parameters: { type: 'object' }
     }
   },
   response: {
@@ -130,6 +171,9 @@ async function hotspotRoutes(fastify, options) {
   
   // Получение списка хотспотов для тура
   fastify.get('/:tourId/hotspots', { schema: getHotspotsSchema }, hotspotsController.getHotspots);
+  
+  // Получение хотспотов для конкретной панорамы
+  fastify.get('/:tourId/panoramas/:panoramaId/hotspots', { schema: getHotspotsByPanoramaSchema }, hotspotsController.getHotspotsByPanorama);
   
   // Создание нового хотспота
   fastify.post('/:tourId/hotspots', { schema: createHotspotSchema }, hotspotsController.createHotspot);
