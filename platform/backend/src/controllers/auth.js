@@ -1,11 +1,11 @@
 const bcrypt = require('bcrypt');
-const { generateToken } = require('../utils/jwt');
 const { models } = require('../models');
+const { createTokens } = require('../utils/jwt');
 
 /**
  * Регистрация нового пользователя
- * @param {Object} request - Объект запроса Fastify
- * @param {Object} reply - Объект ответа Fastify
+ * @param {Object} request - Объект запроса
+ * @param {Object} reply - Объект ответа
  */
 async function register(request, reply) {
   try {
@@ -20,35 +20,49 @@ async function register(request, reply) {
       });
     }
 
-    // Хешируем пароль
-    const saltRounds = 10;
-    const passwordHash = await bcrypt.hash(password, saltRounds);
-
     // Создаем нового пользователя
-    const newUser = await models.User.create({
+    const user = await models.User.createUser({
       name,
       email,
-      passwordHash,
-      role: 'user'
+      password
     });
 
     // Генерируем JWT токен
-    const token = generateToken({
-      id: newUser.id,
-      role: newUser.role
-    });
+    const { token, refreshToken, expiresAt, refreshExpiresAt } = createTokens(user);
+
+    // Обновляем дату последнего входа
+    await user.update({ lastLogin: new Date() });
 
     // Возвращаем токен и данные пользователя
-    return {
+    return reply.code(201).send({
       token,
+      refreshToken,
+      expiresAt,
+      refreshExpiresAt,
       user: {
-        id: newUser.id,
-        name: newUser.name,
-        email: newUser.email
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
       }
-    };
+    });
   } catch (error) {
     request.log.error('Ошибка при регистрации:', error);
+    
+    // Проверяем, является ли ошибка ошибкой валидации Sequelize
+    if (error.name === 'SequelizeValidationError') {
+      const validationErrors = error.errors.map(err => ({
+        field: err.path,
+        message: err.message
+      }));
+      
+      return reply.code(400).send({
+        error: 'Ошибка валидации данных',
+        code: 'VALIDATION_ERROR',
+        details: validationErrors
+      });
+    }
+    
     return reply.code(500).send({
       error: 'Ошибка сервера при регистрации',
       code: 'SERVER_ERROR'
@@ -58,15 +72,17 @@ async function register(request, reply) {
 
 /**
  * Вход пользователя
- * @param {Object} request - Объект запроса Fastify
- * @param {Object} reply - Объект ответа Fastify
+ * @param {Object} request - Объект запроса
+ * @param {Object} reply - Объект ответа
  */
 async function login(request, reply) {
   try {
     const { email, password } = request.body;
 
-    // Ищем пользователя по email
-    const user = await models.User.findOne({ where: { email } });
+    // Ищем пользователя по email с включением пароля
+    const user = await models.User.scope('withPassword').findOne({ where: { email } });
+    
+    // Проверяем, существует ли пользователь
     if (!user) {
       return reply.code(401).send({
         error: 'Неверный email или пароль',
@@ -74,9 +90,17 @@ async function login(request, reply) {
       });
     }
 
+    // Проверяем, активен ли пользователь
+    if (user.isActive === false) {
+      return reply.code(403).send({
+        error: 'Учетная запись пользователя деактивирована',
+        code: 'ACCOUNT_INACTIVE'
+      });
+    }
+
     // Проверяем пароль
-    const passwordMatch = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordMatch) {
+    const isPasswordValid = await user.verifyPassword(password);
+    if (!isPasswordValid) {
       return reply.code(401).send({
         error: 'Неверный email или пароль',
         code: 'INVALID_CREDENTIALS'
@@ -84,20 +108,20 @@ async function login(request, reply) {
     }
 
     // Генерируем JWT токен
-    const token = generateToken({
-      id: user.id,
-      role: user.role
-    });
+    const { token, refreshToken, expiresAt, refreshExpiresAt } = createTokens(user);
 
-    // Возвращаем токен и данные пользователя
-    return {
+    // Обновляем дату последнего входа
+    await user.update({ lastLogin: new Date() });
+
+    // Возвращаем токен и данные пользователя (без пароля)
+    const userData = user.toJSON();
+    return reply.send({
       token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email
-      }
-    };
+      refreshToken,
+      expiresAt,
+      refreshExpiresAt,
+      user: userData
+    });
   } catch (error) {
     request.log.error('Ошибка при входе:', error);
     return reply.code(500).send({
@@ -109,26 +133,23 @@ async function login(request, reply) {
 
 /**
  * Получение информации о текущем пользователе
- * @param {Object} request - Объект запроса Fastify
- * @param {Object} reply - Объект ответа Fastify
+ * @param {Object} request - Объект запроса
+ * @param {Object} reply - Объект ответа
  */
 async function getMe(request, reply) {
   try {
-    const userId = request.user.id;
-
-    // Получаем данные пользователя
-    const user = await models.User.findByPk(userId, {
-      attributes: ['id', 'name', 'email', 'role']
-    });
-
+    // Пользователь уже должен быть прикреплен к запросу middleware аутентификации
+    const user = request.user;
+    
     if (!user) {
-      return reply.code(404).send({
-        error: 'Пользователь не найден',
-        code: 'USER_NOT_FOUND'
+      return reply.code(401).send({
+        error: 'Требуется авторизация',
+        code: 'UNAUTHORIZED'
       });
     }
-
-    return user;
+    
+    // Вернуть информацию о пользователе
+    return reply.send(user);
   } catch (error) {
     request.log.error('Ошибка при получении данных пользователя:', error);
     return reply.code(500).send({
@@ -138,8 +159,74 @@ async function getMe(request, reply) {
   }
 }
 
+/**
+ * Обновление refresh токена
+ * @param {Object} request - Объект запроса
+ * @param {Object} reply - Объект ответа
+ */
+async function refreshToken(request, reply) {
+  try {
+    const { refreshToken } = request.body;
+    
+    if (!refreshToken) {
+      return reply.code(400).send({
+        error: 'Refresh токен не предоставлен',
+        code: 'REFRESH_TOKEN_REQUIRED'
+      });
+    }
+    
+    // Проверяем refresh токен
+    const decoded = verifyToken(refreshToken);
+    
+    // Ищем пользователя
+    const user = await models.User.findByPk(decoded.id);
+    
+    if (!user) {
+      return reply.code(401).send({
+        error: 'Пользователь не найден',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+    
+    // Проверяем, активен ли пользователь
+    if (user.isActive === false) {
+      return reply.code(403).send({
+        error: 'Учетная запись пользователя деактивирована',
+        code: 'ACCOUNT_INACTIVE'
+      });
+    }
+    
+    // Генерируем новые токены
+    const tokens = createTokens(user);
+    
+    return reply.send(tokens);
+  } catch (error) {
+    request.log.error('Ошибка при обновлении токена:', error);
+    
+    if (error.message === 'Срок действия токена истек') {
+      return reply.code(401).send({
+        error: 'Срок действия refresh токена истек',
+        code: 'REFRESH_TOKEN_EXPIRED'
+      });
+    }
+    
+    if (error.message === 'Недействительный токен') {
+      return reply.code(401).send({
+        error: 'Недействительный refresh токен',
+        code: 'INVALID_REFRESH_TOKEN'
+      });
+    }
+    
+    return reply.code(500).send({
+      error: 'Ошибка сервера при обновлении токена',
+      code: 'SERVER_ERROR'
+    });
+  }
+}
+
 module.exports = {
   register,
   login,
-  getMe
+  getMe,
+  refreshToken
 };
